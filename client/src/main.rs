@@ -81,6 +81,7 @@ struct Chat {
     entries: RwSignal<Vec<Entry>>,
     online: RwSignal<Vec<String>>,
     login_error: RwSignal<Option<String>>,
+    login_name: RwSignal<String>,
     /// Canal para o socket atual (`None` enquanto desconectado).
     outbox: StoredValue<Option<UnboundedSender<ClientMsg>>>,
     /// Incrementa a cada entrada/saída; loops de conexão antigos se encerram ao notar a mudança.
@@ -95,6 +96,7 @@ impl Chat {
             entries: RwSignal::new(Vec::new()),
             online: RwSignal::new(Vec::new()),
             login_error: RwSignal::new(None),
+            login_name: RwSignal::new(String::new()),
             outbox: StoredValue::new(None),
             session: StoredValue::new(0),
         }
@@ -263,7 +265,7 @@ fn App() -> impl IntoView {
 
 #[component]
 fn Login(chat: Chat) -> impl IntoView {
-    let name = RwSignal::new(String::new());
+    let name = chat.login_name;
 
     let on_submit = move |ev: SubmitEvent| {
         ev.prevent_default();

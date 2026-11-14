@@ -3,7 +3,7 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
-use server::ChatRoom;
+use server::{ChatRoom, Heartbeat};
 use shared::{ClientMsg, ServerMsg};
 use tokio::{net::TcpStream, time::timeout};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
@@ -11,9 +11,17 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungsten
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn spawn_server() -> String {
+    spawn_server_with(Heartbeat::default()).await
+}
+
+async fn spawn_server_with(heartbeat: Heartbeat) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = server::app(Arc::new(ChatRoom::default()), Path::new("/nonexistent"));
+    let app = server::app(
+        Arc::new(ChatRoom::default()),
+        Path::new("/nonexistent"),
+        heartbeat,
+    );
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     format!("ws://{addr}/ws")
 }
@@ -23,17 +31,19 @@ async fn send(ws: &mut Ws, msg: ClientMsg) {
     ws.send(Message::Text(json.into())).await.unwrap();
 }
 
+/// Próxima mensagem de texto, pulando pings. O prazo vale para a espera toda, e não
+/// por frame: com heartbeat curto chegam pings o tempo todo e um prazo por frame nunca venceria.
 async fn recv(ws: &mut Ws) -> ServerMsg {
-    loop {
-        let frame = timeout(Duration::from_secs(2), ws.next())
-            .await
-            .expect("timeout esperando mensagem")
-            .expect("conexão encerrada")
-            .unwrap();
-        if let Message::Text(text) = frame {
-            return serde_json::from_str(&text).unwrap();
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let frame = ws.next().await.expect("conexão encerrada").unwrap();
+            if let Message::Text(text) = frame {
+                return serde_json::from_str(&text).unwrap();
+            }
         }
-    }
+    })
+    .await
+    .expect("timeout esperando mensagem")
 }
 
 async fn join(url: &str, name: &str) -> (Ws, ServerMsg) {
@@ -117,4 +127,52 @@ async fn disconnect_announces_user_left_and_frees_name() {
 
     let (_, welcome) = join(&url, "bia").await;
     assert_eq!(users(&welcome), ["ana", "bia"]);
+}
+
+#[tokio::test]
+async fn unresponsive_client_is_dropped_and_name_is_freed() {
+    let url = spawn_server_with(Heartbeat {
+        ping_interval: Duration::from_millis(100),
+        idle_timeout: Duration::from_millis(300),
+    })
+    .await;
+
+    let (mut ana, _) = join(&url, "ana").await;
+    // `bia` continua com o TCP aberto, mas nunca mais lê o socket: o tungstenite só
+    // responde pings quando o stream é lido, então ela se comporta como uma rede que caiu.
+    let (_bia, _) = join(&url, "bia").await;
+    assert_eq!(
+        recv(&mut ana).await,
+        ServerMsg::UserJoined { user: "bia".into() }
+    );
+
+    // `ana` fica ociosa mas segue lendo (e respondendo pings), então não deve cair.
+    assert_eq!(
+        recv(&mut ana).await,
+        ServerMsg::UserLeft { user: "bia".into() }
+    );
+
+    // O nome foi liberado e `ana` continua conectada para ver a nova entrada.
+    let (_, welcome) = join(&url, "bia").await;
+    assert_eq!(users(&welcome), ["ana", "bia"]);
+    assert_eq!(
+        recv(&mut ana).await,
+        ServerMsg::UserJoined { user: "bia".into() }
+    );
+}
+
+#[tokio::test]
+async fn connection_that_never_joins_is_closed() {
+    let url = spawn_server_with(Heartbeat {
+        ping_interval: Duration::from_millis(100),
+        idle_timeout: Duration::from_millis(300),
+    })
+    .await;
+
+    let (mut ws, _) = connect_async(&url).await.unwrap();
+    let end = timeout(Duration::from_secs(2), async {
+        while let Some(Ok(_)) = ws.next().await {}
+    })
+    .await;
+    assert!(end.is_ok(), "o server deveria ter fechado a conexão");
 }

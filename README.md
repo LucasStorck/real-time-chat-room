@@ -57,10 +57,11 @@ JSON com tag `type`, por exemplo:
 
 O primeiro frame do cliente precisa ser `join`. Se o nome for inválido ou já estiver em uso, o servidor responde `join_rejected` e fecha a conexão.
 
+O servidor manda um ping a cada 30s e encerra a conexão de quem fica 60s sem enviar nenhum frame (nem pong), liberando o nome.
+
 ## Próximos passos
 
 - Várias salas (`HashMap<String, ChatRoom>`) e `room` no `Join`
 - Persistência do histórico (SQLx + SQLite/Postgres)
 - Autenticação no handshake do WebSocket
-- Detectar clientes mortos por timeout de pong
 - Redis pub/sub para rodar várias instâncias do server

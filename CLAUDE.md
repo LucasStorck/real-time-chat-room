@@ -60,8 +60,8 @@ Cada fase deve terminar com testes passando e o app funcionando ponta a ponta. M
 
 Objetivo: deixar o MVP confiável antes de crescer.
 
-- [ ] `git init`, primeiro commit e CI (GitHub Actions) com `cargo test`, os dois `clippy`, `cargo fmt --check` e `trunk build`
-- [ ] **Timeout de pong:** o server registra o último pong ou frame recebido de cada cliente e encerra a conexão após 60s sem resposta. Isso resolve o nome que fica "preso" quando a rede cai de forma abrupta.
+- [x] `git init`, primeiro commit e CI (GitHub Actions) com `cargo test`, os dois `clippy`, `cargo fmt --check` e `trunk build`
+- [x] **Timeout de pong:** o server registra o último pong ou frame recebido de cada cliente e encerra a conexão após 60s sem resposta. Isso resolve o nome que fica "preso" quando a rede cai de forma abrupta. (Implementado como prazo de leitura em `next_frame`, configurável por `Heartbeat`; também vale para quem conecta e nunca envia `Join`.)
 - [ ] Manter o nome digitado no campo de login após um `JoinRejected` (hoje o `Login` remonta e limpa o campo)
 - [ ] Graceful shutdown do server (Ctrl+C / SIGTERM), fechando os sockets com um frame `Close`
 - [ ] Rate limit simples por conexão (por exemplo, 5 mensagens/s, token bucket no `read_client`), respondendo com um novo `ServerMsg::Error { reason }`

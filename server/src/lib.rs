@@ -27,7 +27,6 @@ use tower_http::{
 
 const HISTORY_LEN: usize = 50;
 const BROADCAST_CAPACITY: usize = 256;
-const PING_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_FRAME_BYTES: usize = 16 * 1024;
 
 /// Uma única sala em memória.
@@ -101,32 +100,60 @@ impl ChatRoom {
     }
 }
 
+/// Detecção de clientes mortos.
+///
+/// O server manda um ping a cada `ping_interval`. Se nenhum frame (pong, ping ou mensagem)
+/// chegar do cliente em `idle_timeout`, a conexão é encerrada e o nome é liberado. Isso cobre
+/// quedas abruptas de rede, em que o TCP não avisa que o outro lado sumiu.
+/// `idle_timeout` precisa ser maior que `ping_interval`.
+#[derive(Clone, Copy, Debug)]
+pub struct Heartbeat {
+    pub ping_interval: Duration,
+    pub idle_timeout: Duration,
+}
+
+impl Default for Heartbeat {
+    fn default() -> Self {
+        Self {
+            ping_interval: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(60),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AppState {
+    room: Arc<ChatRoom>,
+    heartbeat: Heartbeat,
+}
+
 /// Monta o app: WebSocket em `/ws` e os arquivos do client (build do Trunk) no resto.
-pub fn app(room: Arc<ChatRoom>, static_dir: &Path) -> Router {
+pub fn app(room: Arc<ChatRoom>, static_dir: &Path, heartbeat: Heartbeat) -> Router {
     let spa = ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
     Router::new()
         .route("/ws", get(ws_handler))
         .fallback_service(spa)
         .layer(TraceLayer::new_for_http())
-        .with_state(room)
+        .with_state(AppState { room, heartbeat })
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(room): State<Arc<ChatRoom>>) -> Response {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.max_message_size(MAX_FRAME_BYTES)
-        .on_upgrade(move |socket| handle_socket(socket, room))
+        .on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(socket: WebSocket, room: Arc<ChatRoom>) {
+async fn handle_socket(socket: WebSocket, AppState { room, heartbeat }: AppState) {
     let (mut sink, mut stream) = socket.split();
-    let Some((name, rx)) = await_join(&mut sink, &mut stream, &room).await else {
+    let Some((name, rx)) = await_join(&mut sink, &mut stream, &room, heartbeat.idle_timeout).await
+    else {
         return;
     };
     tracing::info!(%name, "entrou na sala");
 
-    let mut send_task = tokio::spawn(forward_broadcast(sink, rx));
+    let mut send_task = tokio::spawn(forward_broadcast(sink, rx, heartbeat.ping_interval));
     let mut recv_task = tokio::spawn({
         let (room, name) = (room.clone(), name.clone());
-        async move { read_client(stream, &room, &name).await }
+        async move { read_client(stream, &room, &name, heartbeat.idle_timeout).await }
     });
 
     // Quando um lado termina (cliente fechou, erro de rede), encerra o outro.
@@ -144,8 +171,9 @@ async fn await_join(
     sink: &mut SplitSink<WebSocket, Message>,
     stream: &mut SplitStream<WebSocket>,
     room: &ChatRoom,
+    idle_timeout: Duration,
 ) -> Option<(String, broadcast::Receiver<ServerMsg>)> {
-    while let Some(Ok(frame)) = stream.next().await {
+    while let Some(frame) = next_frame(stream, idle_timeout).await {
         let Message::Text(raw) = frame else { continue };
         let Ok(ClientMsg::Join { user }) = serde_json::from_str(raw.as_str()) else {
             continue;
@@ -179,8 +207,9 @@ async fn await_join(
 async fn forward_broadcast(
     mut sink: SplitSink<WebSocket, Message>,
     mut rx: broadcast::Receiver<ServerMsg>,
+    ping_interval: Duration,
 ) {
-    let mut ping = tokio::time::interval(PING_INTERVAL);
+    let mut ping = tokio::time::interval(ping_interval);
     ping.tick().await; // o primeiro tick é imediato
 
     loop {
@@ -202,8 +231,13 @@ async fn forward_broadcast(
 }
 
 /// Lê as mensagens do cliente e publica na sala.
-async fn read_client(mut stream: SplitStream<WebSocket>, room: &ChatRoom, name: &str) {
-    while let Some(Ok(frame)) = stream.next().await {
+async fn read_client(
+    mut stream: SplitStream<WebSocket>,
+    room: &ChatRoom,
+    name: &str,
+    idle_timeout: Duration,
+) {
+    while let Some(frame) = next_frame(&mut stream, idle_timeout).await {
         match frame {
             Message::Text(raw) => match serde_json::from_str::<ClientMsg>(raw.as_str()) {
                 Ok(ClientMsg::Send { text }) => {
@@ -215,7 +249,23 @@ async fn read_client(mut stream: SplitStream<WebSocket>, room: &ChatRoom, name: 
                 Err(err) => tracing::debug!(%err, "mensagem inválida do cliente"),
             },
             Message::Close(_) => break,
-            _ => {} // ping/pong são tratados pelo axum
+            _ => {} // ping/pong: o axum já responde; aqui só contam como sinal de vida
+        }
+    }
+}
+
+/// Próximo frame do cliente, ou `None` se a conexão fechou, deu erro ou ficou
+/// `idle_timeout` sem receber nada.
+async fn next_frame(
+    stream: &mut SplitStream<WebSocket>,
+    idle_timeout: Duration,
+) -> Option<Message> {
+    match tokio::time::timeout(idle_timeout, stream.next()).await {
+        Ok(Some(Ok(frame))) => Some(frame),
+        Ok(_) => None,
+        Err(_) => {
+            tracing::info!(?idle_timeout, "cliente sem resposta; encerrando a conexão");
+            None
         }
     }
 }

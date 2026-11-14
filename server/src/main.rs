@@ -1,6 +1,6 @@
 use std::{env, error::Error, net::SocketAddr, path::PathBuf, sync::Arc};
 
-use server::ChatRoom;
+use server::{ChatRoom, Heartbeat};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -20,7 +20,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../client/dist"));
 
-    let app = server::app(Arc::new(ChatRoom::default()), &static_dir);
+    let app = server::app(
+        Arc::new(ChatRoom::default()),
+        &static_dir,
+        Heartbeat::default(),
+    );
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
         "ouvindo em http://{addr} (estáticos de {})",

@@ -1,0 +1,193 @@
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --border: #e2e4e9;
+  --text: #1c1e24;
+  --muted: #6b7080;
+  --accent: #4f5bd5;
+  --accent-text: #ffffff;
+  --mine: #e9ebff;
+  --ok: #1f9d55;
+  --warn: #c98a00;
+  --danger: #d03a3a;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b;
+    --surface: #1d2027;
+    --border: #2c3039;
+    --text: #e7e9ee;
+    --muted: #9095a3;
+    --accent: #7b86f0;
+    --accent-text: #0e1016;
+    --mine: #262b45;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+h1, h2 { margin: 0; }
+
+input, button { font: inherit; }
+
+input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+button {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
+
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+}
+button.ghost:hover { color: var(--text); }
+
+/* Login */
+
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 16px;
+}
+
+.card {
+  display: grid;
+  gap: 12px;
+  width: min(360px, 100%);
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.card h1 { font-size: 22px; }
+.card label { color: var(--muted); font-size: 14px; }
+.error { margin: 0; color: var(--danger); font-size: 14px; }
+
+/* Sala */
+
+.room {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "top top"
+    "users messages"
+    "users composer";
+  height: 100%;
+}
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 17px; }
+.spacer { flex: 1; }
+.me { color: var(--muted); font-size: 14px; }
+
+.badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.badge.online { color: var(--ok); }
+.badge.connecting, .badge.offline { color: var(--warn); }
+
+.users {
+  grid-area: users;
+  padding: 16px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.users h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.users ul { list-style: none; margin: 0; padding: 0; }
+.users li { padding: 4px 0; overflow-wrap: anywhere; }
+.users li::before { content: "●"; color: var(--ok); font-size: 10px; margin-right: 8px; vertical-align: 2px; }
+
+.messages {
+  grid-area: messages;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.msg {
+  align-self: flex-start;
+  max-width: min(640px, 85%);
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.msg.mine { align-self: flex-end; background: var(--mine); }
+.meta { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.author { font-weight: 600; color: var(--text); }
+.text { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.system {
+  align-self: center;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.composer {
+  grid-area: composer;
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .room {
+    grid-template-columns: 1fr;
+    grid-template-areas: "top" "messages" "composer";
+  }
+  .users { display: none; }
+}

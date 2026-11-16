@@ -29,6 +29,7 @@ Variáveis do server: `ADDR` (padrão `127.0.0.1:3000`), `STATIC_DIR` (padrão `
 - **Toda mudança de protocolo começa em `shared`.** Cada nova variante de `ClientMsg` ou `ServerMsg` precisa de um teste de formato de fio em `shared/src/lib.rs` e de tratamento no server e no client.
 - O JSON usa tag interna (`#[serde(tag = "type", rename_all = "snake_case")]`). Mantenha o formato estável, porque clientes antigos podem estar abertos durante um deploy.
 - **Server: todo `tx.send` do broadcast acontece com o lock de `RoomState` adquirido.** É isso que garante que o `Welcome` (histórico + usuários) seja consistente com o que vem depois. O `join` envia `UserJoined` *antes* de `subscribe()`, para o próprio usuário não receber o próprio anúncio.
+- Só `forward_to_client` escreve no socket depois do `Join`. Mensagens para um único cliente (como `ServerMsg::Error`) vão pelo canal `direct` da conexão, nunca pelo `broadcast`.
 - Nunca segure `MutexGuard` (std) através de um `.await`. A lógica que precisa de lock fica em métodos síncronos de `ChatRoom`.
 - O client valida com as mesmas funções do `shared` (`validate_username` e `validate_message`), mas o server **sempre** revalida.
 - No client, o estado fica em `Chat`, uma struct `Copy` de signals. O loop de conexão é invalidado pelo contador `session`: nunca escreva em `outbox` a partir de uma sessão antiga.
@@ -63,8 +64,8 @@ Objetivo: deixar o MVP confiável antes de crescer.
 - [x] `git init`, primeiro commit e CI (GitHub Actions) com `cargo test`, os dois `clippy`, `cargo fmt --check` e `trunk build`
 - [x] **Timeout de pong:** o server registra o último pong ou frame recebido de cada cliente e encerra a conexão após 60s sem resposta. Isso resolve o nome que fica "preso" quando a rede cai de forma abrupta. (Implementado como prazo de leitura em `next_frame`, configurável por `Heartbeat`; também vale para quem conecta e nunca envia `Join`.)
 - [x] Manter o nome digitado no campo de login após um `JoinRejected` (hoje o `Login` remonta e limpa o campo)
-- [ ] Graceful shutdown do server (Ctrl+C / SIGTERM), fechando os sockets com um frame `Close`
-- [ ] Rate limit simples por conexão (por exemplo, 5 mensagens/s, token bucket no `read_client`), respondendo com um novo `ServerMsg::Error { reason }`
+- [x] Graceful shutdown do server (Ctrl+C / SIGTERM), fechando os sockets com um frame `Close`. (`Shutdown` combina um `CancellationToken` e um `TaskTracker`: cada socket manda `Close` 1001 e o `main` espera até 5s que todos terminem. Novos upgrades recebem 503.)
+- [x] Rate limit simples por conexão (por exemplo, 5 mensagens/s, token bucket no `read_client`), respondendo com um novo `ServerMsg::Error { reason }`. (Rajada de 5 e 5/s sustentado. O excesso é descartado e o aviso vai uma vez por sequência de descartes.)
 
 Critério de pronto: um teste e2e prova que um cliente que não responde é removido e o nome dele é liberado.
 

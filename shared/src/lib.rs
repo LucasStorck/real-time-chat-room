@@ -49,6 +49,11 @@ pub enum ServerMsg {
     UserLeft {
         user: String,
     },
+    /// Aviso para este cliente apenas (por exemplo, mensagens rápidas demais).
+    /// A conexão continua aberta.
+    Error {
+        reason: String,
+    },
 }
 
 /// Normaliza e valida um nome de usuário. Usada pelos dois lados.
@@ -96,6 +101,13 @@ mod tests {
             json,
             r#"{"type":"message","user":"ana","text":"oi","ts":1}"#
         );
+        assert_eq!(serde_json::from_str::<ServerMsg>(&json).unwrap(), msg);
+
+        let msg = ServerMsg::Error {
+            reason: "devagar".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"error","reason":"devagar"}"#);
         assert_eq!(serde_json::from_str::<ServerMsg>(&json).unwrap(), msg);
     }
 

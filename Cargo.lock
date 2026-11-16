@@ -1734,6 +1734,7 @@ dependencies = [
  "shared",
  "tokio",
  "tokio-tungstenite 0.30.0",
+ "tokio-util",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -2094,6 +2095,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

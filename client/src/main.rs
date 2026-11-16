@@ -61,6 +61,8 @@ struct Entry {
 enum EntryKind {
     Chat(ChatMessage),
     System(String),
+    /// Aviso do servidor só para este usuário (`ServerMsg::Error`).
+    Error(String),
 }
 
 impl Entry {
@@ -227,6 +229,7 @@ impl Chat {
                 self.push(EntryKind::System(format!("{user} saiu da sala")));
                 self.online.update(|users| users.retain(|u| *u != user));
             }
+            ServerMsg::Error { reason } => self.push(EntryKind::Error(reason)),
         }
     }
 }
@@ -367,6 +370,7 @@ fn Room(chat: Chat) -> impl IntoView {
 fn entry_view(entry: Entry, me: &str) -> AnyView {
     match entry.kind {
         EntryKind::System(text) => view! { <p class="system">{text}</p> }.into_any(),
+        EntryKind::Error(text) => view! { <p class="system error">{text}</p> }.into_any(),
         EntryKind::Chat(msg) => {
             let mine = msg.user == me;
             view! {

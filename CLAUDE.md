@@ -43,6 +43,46 @@ Variáveis do server: `ADDR` (padrão `127.0.0.1:3000`), `STATIC_DIR` (padrão `
 
 ---
 
+## Estado atual: branch `fase-1-shutdown-rate-limit` sem verificação
+
+> **Remova esta seção inteira antes do merge na `main`.** Ela só existe para passar o contexto entre máquinas.
+
+O commit `28f55de` desta branch implementa os dois últimos itens da Fase 1, graceful shutdown e rate limit. Ele foi escrito numa máquina Windows **sem toolchain Rust**, então **nunca foi compilado, formatado nem testado**. Os itens estão marcados `[x]` no plano abaixo, mas só valem depois que a verificação passar. O PR ainda não foi aberto (a CI só roda em PR ou em push na `main`).
+
+O que mudou:
+
+- `server/src/lib.rs`
+  - `Shutdown` (pública), com `CancellationToken` + `TaskTracker` do `tokio-util`, que é uma dependência nova. `app()` ganhou um 4º parâmetro, `shutdown: Shutdown`.
+  - `ws_handler` responde 503 depois do shutdown e registra o socket no tracker antes do upgrade.
+  - `await_join` e `forward_to_client` (antes `forward_broadcast`) mandam `Close` 1001 ao receber o shutdown. `handle_socket` espera até 1s (`CLOSE_GRACE`) pela resposta do cliente.
+  - `TokenBucket` (rajada de 5, 5/s) em `read_client`. Frame de texto sem ficha é descartado e gera um `ServerMsg::Error`, uma vez por sequência de descartes, enviado pelo canal mpsc `direct` até `forward_to_client`.
+- `server/src/main.rs`: `with_graceful_shutdown` com Ctrl+C/SIGTERM, depois espera `shutdown.closed()` por até 5s.
+- `shared`: nova variante `ServerMsg::Error { reason }`, com teste de formato de fio.
+- `client`: `EntryKind::Error`, renderizado como `<p class="system error">`, mais a regra `.system.error` em `style.css`.
+- Testes novos:
+  - `token_bucket_allows_burst_then_refills` (unitário em `lib.rs`);
+  - `shutdown_sends_close_frame_and_waits_for_connections` e `flooding_client_is_rate_limited` (e2e em `server/tests/chat.rs`).
+- `Cargo.lock` editado **à mão**: `tokio-util` nas dependências do `server` e `futures-util` nas do `tokio-util`, por causa da feature `rt`. Pode divergir; deixe o cargo corrigir.
+
+Pontos de maior risco ao compilar:
+
+- `reason: "servidor encerrando".into()` no `CloseFrame` do axum 0.8 (`Utf8Bytes`). Se não houver `From<&str>`, use `Utf8Bytes::from_static`.
+- `u16::from(f.code)` no helper `close_code` dos testes (`CloseCode` do tungstenite).
+- `tokio_util::task::TaskTracker` exige a feature `rt` (já declarada).
+- Formatação: nada passou pelo `rustfmt`.
+
+Próximos passos, nesta ordem:
+
+1. `cargo fmt --all`, `cargo test`, `cargo clippy --all-targets -- -D warnings` e `cargo clippy -p client --target wasm32-unknown-unknown -- -D warnings`. Corrija o que falhar.
+2. Rode os dois testes e2e novos várias vezes (por exemplo, 10x). Eles dependem de tempo: o de flood usa janelas de silêncio de 300ms, e o de shutdown espera o `Close` e `closed()` em até 2s.
+3. Confira no navegador (`trunk build` + `cargo run -p server`, duas abas):
+   - mandar várias mensagens seguidas mostra o aviso vermelho;
+   - Ctrl+C no server deixa o status em "reconectando…";
+   - ao subir o server de novo, o client volta sozinho.
+4. Remova esta seção, faça o commit, abra o PR para a `main` e espere a CI.
+
+---
+
 ## Plano de implementação
 
 Cada fase deve terminar com testes passando e o app funcionando ponta a ponta. Marque `[x]` ao concluir.
